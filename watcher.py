@@ -1,22 +1,24 @@
 import socket
+import pickle
 import struct
 from collections import namedtuple
+from threading import Thread
+from time import time, sleep
 
 UDP_IP="0.0.0.0"
 UDP_PORT=2626
+
+CONTROL = ("0.0.0.0", 2626,)
 
 sock = socket.socket( socket.AF_INET, # Internet
                       socket.SOCK_DGRAM ) # UDP
 sock.bind( (UDP_IP,UDP_PORT) )
 
-up = socket.socket( socket.AF_INET, # Internet
-                      socket.SOCK_DGRAM ) # UDP
+BIND = {}
+SUBS = {}
 
-BIND = {
-  'rev_bde5690.quiz-fb': 'quiz-fb',
-}
 UPLINK = [
-   ('192.168.122.200', 26262),
+   ('localhost', 12626),
 ]
 
 def split(data):
@@ -44,25 +46,145 @@ def split(data):
       yield val
 
 def pack(data):
-    head = struct.pack('=BHB', 224, 0, 3)
+    pack = ""
     for key in data:
-      head += struct.pack('H', len(key))
-      head += key
+      pack += struct.pack('h', len(key))
+      pack += key
 
-    return head
+    head = struct.pack('=bhb', 111, len(pack), 1)
+    return head+pack
 
 Serv = namedtuple('Serv', ['k', 'key', 'a', 'address'])
 
-while True:
-    raw, addr = sock.recvfrom( 1024 ) # buffer size is 1024 bytes
-    data = Serv._make(split(raw))
-    print data
-    send = [raw]
+class TTLList(object):
+    def __init__(self,):
+        self.data = []
+        self.touch = 0
+        self.ttl = 12
 
-    if data.key in BIND:
-      bind_data = Serv(data.k, BIND[data.key], data.a, data.address)
-      send.append(pack(bind_data))
+    def append(self, item):
+        for x,(_item,_touch) in enumerate(self.data):
+            if _item == item:
+                self.data[x] = (_item, time())
+                return
 
-    for uplink in UPLINK:
-      for d in send:
-        up.sendto(d, uplink)
+        self.touch = time()
+        print 'append', item, self.touch
+        self.data.append((item, self.touch))
+
+    def __repr__(self):
+        return repr(self.data)
+
+    def refresh(self):
+        now = time()
+        _len = len(self.data)
+        self.data = [
+                (item,touch)
+                for item,touch in self.data
+                if touch+self.ttl > now
+        ]
+
+        if len(self.data) != _len:
+            self.touch = now
+            print 'dropped!'
+
+    def export(self):
+        return [
+                item
+                for item,touch in self.data
+        ]
+
+def drop_old():
+    for servers in BIND.values():
+        servers.refresh()
+
+def recv():
+    try:
+        raw, addr = sock.recvfrom( 100 ) # buffer size is 1024 bytes
+    except socket.timeout:
+        return
+
+    server = Serv._make(split(raw))
+    print server
+
+    servers = SUBS.get(server.key) or TTLList()
+    servers.append(server.address)
+
+    SUBS[server.key] = servers
+    rev, app = server.key.split('.')
+
+    if app not in SUBS:
+        SUBS[app] = servers
+
+def control_loop():
+    control = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    control.bind(CONTROL)
+    control.listen(1)
+    for conn, addr in iter(control.accept, None):
+        conn.send(pickle.dumps([
+            (key,servers.export())
+            for key,servers in SUBS.items()
+        ]))
+        try:
+            raw = conn.recv(4096)
+        except socket.error:
+            continue
+
+        if raw:
+            setver = pickle.loads(raw)
+            for key, ver in setver.items():
+                if ver in SUBS:
+                    SUBS[key] = SUBS[ver]
+                    send_up(str(time()))
+
+
+        conn.close()
+
+
+def uplink_loop():
+    touched = 0
+    while True:
+        for servers in SUBS.values():
+            servers.refresh()
+            touched = max(touched, servers.touch)
+
+            try:
+                send_up(touched)
+            except:
+                print 'fail'
+                pass
+
+        sleep(9)
+
+def send_up(touched):
+    data = dict([
+        (host, servers.export())
+        for host, servers in SUBS.items()
+    ])
+    print 'send', data, touched
+    for up in UPLINK:
+        send(up, data, touched)
+
+def send(host, binds, touched):
+    import pickle
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(host)
+    s.send(pack(['binds', pickle.dumps(binds)]))
+    s.send(pack(['binds_update', str(touched)]))
+
+
+def recv_loop():
+    sock.settimeout(5)
+    while True:
+        recv()
+
+if __name__ == '__main__':
+    udp = Thread(target=recv_loop)
+    udp.daemon = True
+    udp.start()
+
+    uplink = Thread(target=uplink_loop)
+    uplink.daemon = True
+    uplink.start()
+
+    control_loop()
