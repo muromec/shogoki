@@ -1,5 +1,5 @@
 import socket
-import pickle
+from simplejson import dumps, loads
 import struct
 from collections import namedtuple
 from threading import Thread
@@ -20,6 +20,9 @@ SUBS = {}
 UPLINK = [
    ('localhost', 12626),
 ]
+
+class Up:
+  touch = 0
 
 def split(data):
     limit = len(data)
@@ -59,7 +62,6 @@ Serv = namedtuple('Serv', ['k', 'key', 'a', 'address'])
 class TTLList(object):
     def __init__(self,):
         self.data = []
-        self.touch = 0
         self.ttl = 12
 
     def append(self, item):
@@ -67,10 +69,9 @@ class TTLList(object):
             if _item == item:
                 self.data[x] = (_item, time())
                 return
-
-        self.touch = time()
-        print 'append', item, self.touch
-        self.data.append((item, self.touch))
+ 
+        Up.touch = time()
+        self.data.append((item, Up.touch))
 
     def __repr__(self):
         return repr(self.data)
@@ -85,8 +86,7 @@ class TTLList(object):
         ]
 
         if len(self.data) != _len:
-            self.touch = now
-            print 'dropped!'
+            Up.touch = now
 
     def export(self):
         return [
@@ -105,7 +105,6 @@ def recv():
         return
 
     server = Serv._make(split(raw))
-    print server
 
     servers = SUBS.get(server.key) or TTLList()
     servers.append(server.address)
@@ -121,7 +120,7 @@ def control_loop():
     control.bind(CONTROL)
     control.listen(1)
     for conn, addr in iter(control.accept, None):
-        conn.send(pickle.dumps([
+        conn.send(dumps([
             (key,servers.export())
             for key,servers in SUBS.items()
         ]))
@@ -131,27 +130,26 @@ def control_loop():
             continue
 
         if raw:
-            setver = pickle.loads(raw)
+            setver = loads(raw)
             for key, ver in setver.items():
                 if ver in SUBS:
                     SUBS[key] = SUBS[ver]
-                    send_up(str(time()))
+                    Up.touch = time()
+                    send_up(Up.touch)
 
 
         conn.close()
 
 
 def uplink_loop():
-    touched = 0
     while True:
         for servers in SUBS.values():
             servers.refresh()
-            touched = max(touched, servers.touch)
 
             try:
-                send_up(touched)
-            except:
-                print 'fail'
+                send_up(Up.touch)
+            except Exception, e:
+                print 'fail', e
                 pass
 
         sleep(9)
@@ -161,7 +159,6 @@ def send_up(touched):
         (host, servers.export())
         for host, servers in SUBS.items()
     ])
-    print 'send', data, touched
     for up in UPLINK:
         send(up, data, touched)
 
@@ -169,8 +166,13 @@ def send(host, binds, touched):
     import pickle
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(host)
-    s.send(pack(['binds', pickle.dumps(binds)]))
-    s.send(pack(['binds_update', str(touched)]))
+    s.send(pack(['binds', dumps(binds)]))
+    s.close()
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(host)
+    s.send(pack(['binds_update', str(int(touched))]))
+    s.close()
 
 
 def recv_loop():

@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 import socket
-import pickle
+from simplejson import loads, dumps
 
 def dump(host):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(host)
-    for host, servers in pickle.loads(s.recv(4096)):
+    for host, servers in loads(s.recv(4096)):
         print host
         print servers
         print '----'
@@ -14,7 +14,7 @@ def dump(host):
 def setver(host, key, ver):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(host)
-    s.send(pickle.dumps({key:ver}))
+    s.send(dumps({key:ver}))
 
 
 if __name__ == '__main__':
