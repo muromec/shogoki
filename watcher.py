@@ -65,8 +65,8 @@ def recv_loop():
 
         try:
             recv()
-        except:
-            pass
+        except Exception, e:
+            print e
 
 if __name__ == '__main__':
     udp = Thread(target=recv_loop)
