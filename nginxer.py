@@ -1,5 +1,4 @@
-import os
-import signal
+import subprocess
 
 def format_back(up):
     print up
@@ -15,9 +14,10 @@ def reconfig(backends):
     tpl_f.close()
 
     for serv, up in backends:
+        dom = str.join('',reversed(serv.split('-')))
         conf = tpl % {
                 "serv": serv,
-                "domain": serv,
+                "domain": dom,
                 "up": format_back(up),
         }
 
@@ -31,4 +31,4 @@ def reconfig(backends):
     pid_s = pid_f.read()
     pid_f.close()
 
-    os.kill(int(pid_s), signal.SIGHUP)
+    subprocess.call(["sudo", "service", "nginx", "reload"])
