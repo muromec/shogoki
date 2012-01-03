@@ -1,9 +1,9 @@
 import socket
 from simplejson import dumps, loads
-import struct
 from collections import namedtuple
 from threading import Thread
-from time import time, sleep
+import uwsgi_proto
+from backends import Backends
 
 UDP_IP="0.0.0.0"
 UDP_PORT=2626
@@ -14,92 +14,14 @@ sock = socket.socket( socket.AF_INET, # Internet
                       socket.SOCK_DGRAM ) # UDP
 sock.bind( (UDP_IP,UDP_PORT) )
 
-SUBS = {}
+back = Backends()
 
 UPLINK = [
    ('localhost', 12626),
 ]
 
-class Up:
-  touch = 0
-
-def split(data):
-    limit = len(data)
-    pos = 0
-
-    mod1,sz,mod2 = struct.unpack_from('=BHB', data, pos)
-    assert mod1 == 224
-    assert mod2 == 0
-
-    pos += 4
-
-    while pos < limit:
-      [sz] = struct.unpack_from('H', data, pos)
-      pos += 2
-      key = data[pos:pos+sz]
-      pos += sz
-
-      [sz] = struct.unpack_from('H', data, pos)
-      pos += 2
-      val = data[pos:pos+sz]
-      pos += sz
-
-      yield key
-      yield val
-
-def pack(data, ):
-    pack = ""
-    for key in data:
-      pack += struct.pack('h', len(key))
-      pack += key
-
-    head = struct.pack('=bhb',111, len(pack), 1)
-    return head+pack
-
 Serv = namedtuple('Serv', ['k', 'key', 'a', 'address'])
 
-class TTLList(object):
-    def __init__(self,):
-        self.data = []
-        self.ttl = 12
-
-    def append(self, item):
-        for x,(_item,_touch) in enumerate(self.data):
-            if _item == item:
-                self.data[x] = (_item, time())
-                return
- 
-        Up.touch = time()
-        self.data.append((item, Up.touch))
-
-    def __repr__(self):
-        return repr(self.data)
-
-    def refresh(self):
-        now = time()
-        _len = len(self.data)
-        self.data = [
-                (item,touch)
-                for item,touch in self.data
-                if touch+self.ttl > now
-        ]
-
-        if len(self.data) != _len:
-            Up.touch = now
-
-    def export(self):
-        return [
-                item
-                for item,touch in self.data
-        ]
-
-def drop_old():
-    print 'drop old'
-    for key,servers in list(SUBS.items()):
-        print 'refresh', key, servers.data
-        servers.refresh()
-	if not servers.data:
-	   del SUBS[key]
 
 def recv():
     try:
@@ -107,87 +29,48 @@ def recv():
     except socket.timeout:
         return
 
-    server = Serv._make(split(raw))
+    server = Serv._make(uwsgi_proto.split(raw))
+    back.add(server)
 
-    servers = SUBS.get(server.key) or TTLList()
-    servers.append(server.address)
-
-    SUBS[server.key] = servers
-    rev, app = server.key.split('.', 1)
-
-    if app not in SUBS:
-        SUBS[app] = servers
 
 def control_loop():
     control = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     control.bind(CONTROL)
     control.listen(1)
     for conn, addr in iter(control.accept, None):
-        conn.send(dumps([
-            (key,servers.export())
-            for key,servers in SUBS.items()
-        ]))
+        conn.send(dumps(list(back.export())))
+
         try:
             raw = conn.recv(4096)
+            if not raw:
+                conn.close()
+                continue
+
         except socket.error:
             continue
 
-        if raw:
-            setver = loads(raw)
-            for key, ver in setver.items():
-                if ver in SUBS:
-                    SUBS[key] = SUBS[ver]
-                    Up.touch = time()
-                    send_up(Up.touch)
-
+        setver = loads(raw)
+        for key, ver in setver.items():
+            back.bind(key, ver)
 
         conn.close()
-
-
-def uplink_loop():
-    print 'up'
-    while True:
-        drop_old()
-        try:
-            send_up(Up.touch)
-        except Exception, e:
-            print 'fail', e
-
-        sleep(9)
-
-def send_up(touched):
-    data = dict([
-        (host, servers.export())
-        for host, servers in SUBS.items()
-    ])
-    for up in UPLINK:
-        send(up, data, touched)
-
-def send(host, binds, touched):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect(host)
-    s.send(pack(['binds', dumps(binds)]))
-    s.close()
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect(host)
-    s.send(pack(['binds_update', str(int(touched))]))
-
-    s.close()
-
 
 def recv_loop():
     sock.settimeout(5)
     while True:
-        recv()
+        try:
+            back.refresh()
+        except:
+            pass
+
+        try:
+            recv()
+        except:
+            pass
 
 if __name__ == '__main__':
     udp = Thread(target=recv_loop)
     udp.daemon = True
     udp.start()
-
-    uplink = Thread(target=uplink_loop)
-    uplink.daemon = True
-    uplink.start()
 
     control_loop()
