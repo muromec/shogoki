@@ -14,7 +14,6 @@ sock = socket.socket( socket.AF_INET, # Internet
                       socket.SOCK_DGRAM ) # UDP
 sock.bind( (UDP_IP,UDP_PORT) )
 
-BIND = {}
 SUBS = {}
 
 UPLINK = [
@@ -48,13 +47,13 @@ def split(data):
       yield key
       yield val
 
-def pack(data):
+def pack(data, ):
     pack = ""
     for key in data:
       pack += struct.pack('h', len(key))
       pack += key
 
-    head = struct.pack('=bhb', 111, len(pack), 1)
+    head = struct.pack('=bhb',111, len(pack), 1)
     return head+pack
 
 Serv = namedtuple('Serv', ['k', 'key', 'a', 'address'])
@@ -95,8 +94,12 @@ class TTLList(object):
         ]
 
 def drop_old():
-    for servers in BIND.values():
+    print 'drop old'
+    for key,servers in list(SUBS.items()):
+        print 'refresh', key, servers.data
         servers.refresh()
+	if not servers.data:
+	   del SUBS[key]
 
 def recv():
     try:
@@ -110,7 +113,7 @@ def recv():
     servers.append(server.address)
 
     SUBS[server.key] = servers
-    rev, app = server.key.split('.')
+    rev, app = server.key.split('.', 1)
 
     if app not in SUBS:
         SUBS[app] = servers
@@ -142,15 +145,13 @@ def control_loop():
 
 
 def uplink_loop():
+    print 'up'
     while True:
-        for servers in SUBS.values():
-            servers.refresh()
-
-            try:
-                send_up(Up.touch)
-            except Exception, e:
-                print 'fail', e
-                pass
+        drop_old()
+        try:
+            send_up(Up.touch)
+        except Exception, e:
+            print 'fail', e
 
         sleep(9)
 
@@ -163,7 +164,6 @@ def send_up(touched):
         send(up, data, touched)
 
 def send(host, binds, touched):
-    import pickle
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(host)
     s.send(pack(['binds', dumps(binds)]))
@@ -172,6 +172,7 @@ def send(host, binds, touched):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(host)
     s.send(pack(['binds_update', str(int(touched))]))
+
     s.close()
 
 
