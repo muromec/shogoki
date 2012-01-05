@@ -13,12 +13,14 @@ def reconfig(backends):
     tpl = tpl_f.read()
     tpl_f.close()
 
-    for serv, up in backends:
+    for serv, ver, up in backends:
+        print serv, 'v', ver, 'u', up
         dom = str.join('',reversed(serv.split('-')))
         conf = tpl % {
                 "serv": serv,
                 "domain": dom,
                 "up": format_back(up),
+                "ver": ver,
         }
 
         conf_f = open('/var/run/shogoki/%s.conf' % serv, 'w')

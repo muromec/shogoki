@@ -1,3 +1,5 @@
+import re
+
 from ttllist import TTLList
 import nginxer
 
@@ -37,7 +39,12 @@ class Backends(object):
         ])
 
         for key in apps:
-            yield key, self.serving(key)
+            ver = self.serving(key)
+            servers = self.subs.get(ver)
+            if not ver or not servers:
+                continue
+
+            yield key, ver, servers.export()
 
     def bind(self, key, ver):
         self.binds[key] = ver
@@ -54,24 +61,24 @@ class Backends(object):
     def serving(self, key):
         pin = self.binds.get(key)
 
-        servers = self.subs.get(pin)
-        if servers:
-            return servers.export()
+        if self.subs.get(pin):
+            return pin
 
-        versions = sorted([
+        pattern = pin or '.+\.%s' % key
+        print 'p',pattern
+
+        versions = self.by_pattern(pattern)
+
+        for ver in reversed(versions):
+            if self.subs.get(ver):
+                return ver
+
+    def by_pattern(self, pattern):
+        return sorted([
                 ver
                 for ver in self.subs
-                if ver.rsplit('.', 1)[-1] == key
+                if re.match(pattern, ver)
         ])
-
-        if not versions:
-            return []
-
-        servers = self.subs.get(versions[-1])
-        if servers:
-            return servers.export()
-
-        return []
 
 
     def taint(self):
