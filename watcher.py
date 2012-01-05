@@ -15,6 +15,7 @@ sock = socket.socket( socket.AF_INET, # Internet
 sock.bind( (UDP_IP,UDP_PORT) )
 
 back = Backends()
+back.load()
 
 UPLINK = [
    ('localhost', 12626),
@@ -49,11 +50,16 @@ def control_loop():
         except socket.error:
             continue
 
+        back.load()
         setver = loads(raw)
         for key, ver in setver.items():
-            back.bind(key, ver)
+            if ver == '-':
+                back.unbind(key)
+            else:
+                back.bind(key, ver)
 
         conn.close()
+        back.save()
 
 def recv_loop():
     sock.settimeout(5)

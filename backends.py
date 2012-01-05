@@ -2,6 +2,8 @@ from ttllist import TTLList
 import nginxer
 
 class Backends(object):
+    BIND_FILE = '/etc/shogoki/binds'
+
     def __init__(self):
         self.subs = {}
         self.binds = {}
@@ -43,6 +45,12 @@ class Backends(object):
 
         return True
 
+    def unbind(self, key):
+        ret = self.binds.pop(key, None)
+        self.taint()
+        return bool(ret)
+
+
     def serving(self, key):
         pin = self.binds.get(key)
 
@@ -70,3 +78,33 @@ class Backends(object):
         print 'tainted!'
         self.tainted = True
         nginxer.reconfig(self.conf)
+
+    def load(self):
+        import os
+        if not os.access(self.BIND_FILE, 0):
+            return
+
+        bind_f = open(self.BIND_FILE, 'r')
+        raw = bind_f.read()
+        bind_f.close()
+
+        import yaml
+        try:
+            binds = yaml.load(raw)['binds']
+            for k, v in binds.items():
+                if isinstance(v, basestring):
+                    self.binds[k] = v
+        except Exception, e:
+            print 'cant update binds', e
+
+    def save(self):
+        import yaml
+        raw = yaml.safe_dump({'binds':self.binds},  default_flow_style=False)
+
+        try:
+            bind_f = open(self.BIND_FILE, 'w')
+        except IOError:
+            return
+
+        bind_f.write(raw)
+        bind_f.close()
