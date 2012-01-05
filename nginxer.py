@@ -4,7 +4,7 @@ def format_back(up):
     print up
     ret = ""
     for srv in up:
-        ret += 'server %s;' % srv
+        ret += "server %s;\n" % srv
 
     return ret
 
@@ -26,9 +26,5 @@ def reconfig(backends):
         conf_f.write(conf)
         conf_f.close()
 
-
-    pid_f = open('/var/run/nginx.pid')
-    pid_s = pid_f.read()
-    pid_f.close()
 
     subprocess.call(["sudo", "service", "nginx", "reload"])
