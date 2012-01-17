@@ -6,7 +6,9 @@ from simplejson import loads, dumps
 def dump(host):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(host)
-    for host, servers in loads(s.recv(4096)):
+    data = s.recv(4096)
+    print data
+    for host, servers in loads(data):
         print host
         print servers
         print '----'

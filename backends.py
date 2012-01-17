@@ -13,7 +13,6 @@ class Backends(object):
 
     def refresh(self):
         for key,servers in list(self.subs.items()):
-            print 'refresh', key, servers.data
             servers.refresh()
             if not servers.data:
                del self.subs[key]

@@ -1,5 +1,21 @@
 import subprocess
 
+def load():
+	import os
+	if not os.access('/etc/shogoki/domains', 0):
+	    return {}
+
+	bind_f = open('/etc/shogoki/domains', 'r')
+	raw = bind_f.read()
+	bind_f.close()
+
+	import yaml
+	try:
+	    return yaml.load(raw)
+	except Exception, e:
+	    return {}
+
+
 def format_back(up):
     print up
     ret = ""
@@ -13,9 +29,15 @@ def reconfig(backends):
     tpl = tpl_f.read()
     tpl_f.close()
 
+    doms = load()
+    print doms
     for serv, ver, up in backends:
         print serv, 'v', ver, 'u', up
-        dom = str.join('',reversed(serv.split('-')))
+        dom = doms.get(serv, serv)
+
+        if isinstance(dom, list):
+	    dom = str.join(' ', dom)
+
         conf = tpl % {
                 "serv": serv,
                 "domain": dom,
