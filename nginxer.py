@@ -1,7 +1,7 @@
+import os
 import subprocess
 
 def load():
-	import os
 	if not os.access('/etc/shogoki/domains', 0):
 	    return {}
 
@@ -32,6 +32,10 @@ def reconfig(backends):
     doms = load()
     print doms
     for serv, ver, up in backends:
+        if not backends:
+            os.unlink('/var/run/shogoki/%s.conf' % serv)
+            continue
+
         print serv, 'v', ver, 'u', up
         dom = doms.get(serv, serv)
 
