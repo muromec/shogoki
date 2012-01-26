@@ -32,12 +32,13 @@ class Backends(object):
 
     @property
     def conf(self):
-        apps = set([
+        apps = [
             key.rsplit('.',1)[-1]
             for key in self.subs.keys()
-        ])
+        ]
+        apps.extend(self.binds.keys())
 
-        for key in apps:
+        for key in set(apps):
             ver = self.serving(key)
             servers = self.subs.get(ver)
             if not ver or not servers:
